@@ -52,7 +52,8 @@
 
 /* ============================ 电感（电磁）配置 ============================ */
 #define INDUCTOR_NUM        (4)          /* 电感路数 */
-#define INDUCTOR_FILTER     (5)            /* 每路每次采 5 次取平均 */
+#define INDUCTOR_FILTER     (5)
+#define IND_VALID_GATE      (300)
 
 
 adc_channel_enum inductor_ch[INDUCTOR_NUM] =
@@ -61,7 +62,7 @@ adc_channel_enum inductor_ch[INDUCTOR_NUM] =
     ADC1_CH1_P11,                       /* [1] P1.1 ——left  */
     ADC2_CH7_P07,                       /* [2] P0.7 ——right */
     ADC2_CH6_P06,                       /* [3] P0.6 ——most_right */
-};
+};                            
 
 
 volatile uint16 inductor_now[INDUCTOR_NUM];      /* 当前值  */
@@ -74,13 +75,22 @@ int32 left_sum =  0;                       /* 左电感累加值 */
 int32 right_sum = 0;                       /* 右电感累加值 */
 float err       = 0.0f;                 /* 本次误差     */
 float err_last  = 0.0f;                 /* 上次误差          */
-float delta_err = 0.0f;                 /* 误差的变化量 Δe   */
+float delta_err = 0.0f; 
+                
+               /* 误差的变化量 Δe   */
+
+/* ★ D 项一阶低通滤波 */
+float d_filt    = 0.0f;                 /* 滤波器状态 */
+float d_alpha   = 0.7f;                 /* 1.0=不滤，越小越狠，别低于 0.5 */
+
+/* ★ 信号丢失标志 */
+uint8 sig_lost  = 1;                    /* 初值 1 → 上电第一周期也不算 D */                
 float P_out  = 0.0f;                    /* 比例项 */
 float D_out  = 0.0f;                    /* 微分项 */
 float PD_out = 0.0f;                    /* PD 输出 */
 float steer  = 90.0f;                   /* 舵机目标角度 */
-float kp = 10.0f;                       /* 比例系数(待定) */
-float kd = 1.5f;                       /* 微分系数：P （待定）*/
+float kp = 20.0f;                       /* 比例系数(待定) */
+float kd =1.5f;                      /* 微分系数：P （待定）*/
 float periods = 0.005f;                     /* 中断周期 5ms */
 /* ============================ 屏幕配置 ============================ */
 #define SCREEN_COLOR_A      (RGB565_BLACK)      /* 颜色一：黑底 */
@@ -91,44 +101,69 @@ float periods = 0.005f;                     /* 中断周期 5ms */
 
 /* ============================ 全局变量 ============================ */
 float servo_motor_duty = 90.0;                  /* 舵机当前角度 */
-float servo_motor_dir  = 1;                     /* 舵机扫描方向 */
-/* ----  中断 → 主循环 的"信箱"（全部整数）----*/
+float servo_motor_dir  = 1;
+              /* 舵机扫描方向 */
 
+/* ----  中断 → 主循环 的"信箱"（全部整数）----*/
 volatile int16  g_err10   = 0;                  /* err   × 10 */
-volatile int16  g_steer10 = 0;                  /* steer × 10 */
-/* ============================  控制中断 ============================*/
+volatile int16  g_steer10 = 0;                  /* steer × 10 */ 
+               
 void control_handler(void){
     uint8 i = 0;
-    /* ========== 5. 采电感（循环采每一路） ========== */ 
-    for(i = 0; i < INDUCTOR_NUM; i++)
-        {
-            inductor_now[i] = adc_mean_filter_convert(inductor_ch[i], INDUCTOR_FILTER);/*  */
 
-          
-        }
+    /* ---- 1. 采电感（循环采每一路）---- */
+    for(i = 0; i < INDUCTOR_NUM; i++)
+    {
+        inductor_now[i] = adc_mean_filter_convert(inductor_ch[i], INDUCTOR_FILTER);
+    }
+
     /* ---- 2. 左右求和 ---- */
     left_sum  = (int32)inductor_now[0] + (int32)inductor_now[1];
     right_sum = (int32)inductor_now[2] + (int32)inductor_now[3];
-    /* ---- 3. 求偏差（差比和）---- */
-    if((left_sum + right_sum) > 300)          
+
+    /* ---- 3. 求偏差（差比和）+ ★ 信号有效性门限 ---- */
+    if((left_sum + right_sum) > IND_VALID_GATE)
     {
-        err = (float)(left_sum - right_sum) / (float)(left_sum + right_sum);
+        /* ==== 信号有效：测量相关的全部在这里做 ==== */
+        err = (float)(left_sum - right_sum) / (float)(left_sum + right_sum);   /*如果left_sum + right_sum) > IND_VALID_GATE则执行128-130代码，再判断130副逻辑，
+                                                                                (首次执行副逻辑必定成立，因为sig_lost初值为1，除非left_sum + right_sum) > IND_VALID_GATE不成立）*/
+        if(sig_lost)                        
+        {
+            delta_err = 0.0f;                     
+            sig_lost  = 0;
+        }
+        else
+        {
+            delta_err = (err - err_last) / periods;
+            err_last = err;
+        }
+
+                           
     }
     else
     {
-        err = 0.0f;
+        /* ==== 信号无效：测量相关的一律冻结/归零 ==== */
+        err       = 0.0f;
+        delta_err = 0.0f;
+        sig_lost  = 1;                     
+       
     }
-     /* ---- 4. PD ---- */
-    delta_err = (err - err_last)/periods;
-    steer = STEER_MID + kp * err + kd * delta_err;
-    if(steer >= STEER_MAX) { steer = STEER_MAX; }       /* ★ 限幅，防 zf_assert 死机 */
-    if(steer <= STEER_MIN) { steer = STEER_MIN; }
-    err_last = err;
-    /* ---- 5. 发舵机 ---- */
-    pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(steer));
-    g_err10 = (int16)(err * 10.0f);          /* 发给主循环 */
-    g_steer10 = (int16)(steer * 10.0f);      /* 发给主循环 */
 
+    /* ---- 4.5 D 项一阶低通滤波 ---- */
+    d_filt = d_alpha * delta_err + (1.0f - d_alpha) * d_filt;
+
+    /* ---- 4. PD ---- */
+    steer = STEER_MID + kp * err + kd * d_filt;
+
+    if(steer >= STEER_MAX) { steer = STEER_MAX; }       /*  限幅，防 zf_assert 死机 */
+    if(steer <= STEER_MIN) { steer = STEER_MIN; }
+
+    /* ---- 5. 发舵机（★ 必须每周期都发，不能放进 if 里）---- */
+    pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(steer));
+
+    g_err10   = (int16)(err * 10.0f);
+    g_steer10 = (int16)(steer * 10.0f);
+                    
 }
 
 /* ============================ 主函数 ============================ */
@@ -181,7 +216,7 @@ void main(void)
   
         
         /* ========== 6. 屏幕显示电感值 ========== */
-        tft180_show_int16(0,0,(uint16)inductor_now[0]);     
+        tft180_show_int16(0,0,(uint16)inductor_now[0]);           
         tft180_show_int16(64,0,(uint16)inductor_now[1]);
         tft180_show_int16(0,16,(uint16)inductor_now[2]);     
         tft180_show_int16(64,16,(uint16)inductor_now[3]);     
