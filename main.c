@@ -100,6 +100,9 @@ float kp = 28.5f;                       /* 比例系数：D  (待定) */
 float kd = 2.0f;                        /* 微分系数：P  (待定) */
 
 float periods = 0.005f;                 /* 中断周期 5ms */
+
+
+
 /* ============================ 屏幕配置 ============================ */
 #define SCREEN_COLOR_A      (RGB565_BLACK)      /* 颜色一：黑底 */
 #define SCREEN_PEN_A        (RGB565_WHITE)      /* 字色：白     */
@@ -107,19 +110,21 @@ float periods = 0.005f;                 /* 中断周期 5ms */
 #define SCREEN_PEN_B        (RGB565_BLACK)      /* 字色：黑     */
 
 
+
 /* ============================ 全局变量 ============================ */
 
-              /* 舵机扫描方向 */
+/* 舵机扫描方向 */
 
 /* ----  中断变量----*/
 volatile int16  g_err10   = 0;                  /* err   × 10 */
 volatile int16  g_steer10 = 0;                  /* steer × 10 */ 
-volatile int16  g_total10 = 0; 
+volatile int16  g_total10 = 0;
+
 /* 环岛变量*/ 
 #define rLOOP_IN_ADC        (45)               
 #define lLOOP_IN_ADC        (45)
 #define LOOP_IN_ADC         (120)         
- 
+
 
 #define find_signal         (0)               
 #define enter_loop_signal   (1)
@@ -134,8 +139,8 @@ volatile int16  g_total10 = 0;
 #define lLOOP_exit_ADC       (120)  
 #define cool_state           (7)         
 int8 change_steer1 = 0;        /* 角度状态 */
-int8 cool_time = 0;                
-volatile int8 state = find_signal;
+int8 cool_time = 0;            /* 状态机冷却 */
+volatile int8 state = find_signal;  // 让状态机state设置默认为 find_signal➡️0
 int8 signal =0;
 float right_in_steer= -0.8f;
 float right_out_steer= 0.8f;
@@ -143,10 +148,10 @@ float left_in_steer= 1.0f;
 float left_out_steer= -1.0f;
 float ring_steer= 0.0f; 
 /*---加权差比和-----*/
-float  WEIGHT_OUT = 1.0f;  /* 外侧权重 */
-float  WEIGHT_IN = 0.0f;   /* 内侧权重 */
-float  WEIGHT_diff ;  
-float  WEIGHT_SUM  ;
+float WEIGHT_OUT = 1.0f;  /* 外侧权重 */
+float WEIGHT_IN = 0.0f;   /* 内侧权重 */
+float WEIGHT_diff ;  
+float WEIGHT_SUM  ;
 
 /* ============================ 中断函数 ============================ */              
 void control_handler(void){
@@ -171,94 +176,117 @@ void control_handler(void){
         inductor_now[i] = adc_mean_filter_convert(inductor_ch[i], INDUCTOR_FILTER);
     }
     
- 
-    WEIGHT_diff = WEIGHT_IN * ( (int32)inductor_now[1] - (int32)inductor_now[2] ) + WEIGHT_OUT * ( (int32)inductor_now[0] - (int32)inductor_now[3] );
+    /* 差比和 */           
+    // WEIGHT_IN 和 WEIGHT_OUT 的作用是在代码层面上为电感加上系数 充当运算放大器的作用
+
+    // 差
+    WEIGHT_diff = WEIGHT_IN * ( (int32)inductor_now[1] - (int32)inductor_now[2] ) + WEIGHT_OUT * ( (int32)inductor_now[0] - (int32)inductor_now[3] );  
+    // 和
     WEIGHT_SUM = WEIGHT_IN * ( (int32)inductor_now[1] + (int32)inductor_now[2] ) + WEIGHT_OUT * ( (int32)inductor_now[0] + (int32)inductor_now[3] );          
     
-  
+    
    
     
          
-    err = (float)(WEIGHT_diff) / (float)(WEIGHT_SUM);
-    delta_err = (err - err_last) / periods;
+    err = (float)(WEIGHT_diff) / (float)(WEIGHT_SUM);   // 误差
+    delta_err = (err - err_last) / periods;             // 误差变化量
     err_last = err;  
             
 
     /* ---- 4.5 D 项一阶低通滤波 ---- */
-    d_filt = d_alpha * delta_err + (1.0f - d_alpha) * d_filt;
+    d_filt = d_alpha * delta_err + (1.0f - d_alpha) * d_filt;   
 
 
-    if (cool_time>0){
+    if (cool_time > 0){
         cool_time--;
     }
     else {    
         switch(state)
         {
-            case find_signal:
+            case find_signal:       // 路况判断状态
                 /* 4电感判断如果当中电感抽了，试试用err */
                 if (
-                        ( (int32)inductor_now[1] - (int32)inductor_now[2] > (int32)rLOOP_IN_ADC )
-                        &&
-                        ( (int32)inductor_now[0] + (int32)inductor_now[3] > (int32)LOOP_IN_ADC )
+
+                    ( (int32)inductor_now[1] - (int32)inductor_now[2] > (int32)rLOOP_IN_ADC )
+                    &&
+                    ( (int32)inductor_now[0] + (int32)inductor_now[3] > (int32)LOOP_IN_ADC )
+
                    )
+
                 {
                     signal = 1;                     /* 右环岛 */
                     state  = enter_loop_signal;
                 }
                 else if (
-                        ( (int32)inductor_now[2] - (int32)inductor_now[1] > (int32)lLOOP_IN_ADC )
-                        &&
-                        ( (int32)inductor_now[0] + (int32)inductor_now[3] > (int32)LOOP_IN_ADC )
+
+                    ( (int32)inductor_now[2] - (int32)inductor_now[1] > (int32)lLOOP_IN_ADC )
+                    &&
+                    ( (int32)inductor_now[0] + (int32)inductor_now[3] > (int32)LOOP_IN_ADC )
+
                     )
+
                 {
                     signal = 2;                     /* 左环岛 */
                     state  = enter_loop_signal;
                 }
+
                 break;                             
 
-            case enter_loop_signal:
-                change_steer1 = (signal == 1) ? 1 : 2;  // ?
+            case enter_loop_signal:     // 环岛信号
+                change_steer1 = (signal == 1) ? 1 : 2;  // ???求翻译
                 state = xh_SIGNAL;
+
                 break;
 
             case xh_SIGNAL:
                 change_steer1 = 3;
+
                 if (
+
                         ( (int32)inductor_now[1] > (int32)rLOOP_exit_ADC )
                         &&
                         ( (int32)inductor_now[0] + (int32)inductor_now[3] > (int32)LOOP_IN_ADC )
+
                     )
                 {
                     state = change_steer3;
                 }
                 else if (
+
                         ( (int32)inductor_now[2] > (int32)lLOOP_exit_ADC )
                         &&
                         ( (int32)inductor_now[0] + (int32)inductor_now[3] > (int32)LOOP_IN_ADC )
+
                     )
+                
                 {
                     state = change_steer4;
                 }
+
                 break;
 
             case change_steer3:
                 change_steer1 = 3;
-                state    = cool_state;
+                state = cool_state;
+
                 break;
 
             case change_steer4:
                 change_steer1 = 4;
-                state   = cool_state;
+                state = cool_state;
+
                 break;
 
             case cool_state:
                 cool_time = 30;
-                state  = find_signal;             
+                state = find_signal;
+
                 break;
 
-            default:                                
+            default:
                 state = find_signal;
                 change_steer1 = 0;
+
                 break;
                 
                 
@@ -269,63 +297,84 @@ void control_handler(void){
     
         } 
     }      
-          
-            
-         
+
 
     /* ---- 4. PD ---- */
     steer = STEER_MID + kp * err + kd * d_filt;
     pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(steer));
-    if(steer >= STEER_MAX) { steer = STEER_MAX; }       /*  限幅，防 zf_assert 死机 */
-    if(steer <= STEER_MIN) { steer = STEER_MIN; }
+    if (steer >= STEER_MAX) {
+        steer = STEER_MAX; 
+    }       
+    if (steer <= STEER_MIN) {
+        steer = STEER_MIN; 
+    }
+    /*  限幅，防 zf_assert 死机 */
 
-    switch(change_steer1)
-      {
-        case 1 :
-          ring_steer =steer+right_in_steer;
-          if(ring_steer<=STEER_MIN)
-         {ring_steer=STEER_MIN;}
-        
-        
-        pwm_set_duty(SERVO_PWM,(uint32)SERVO_DUTY(ring_steer));
- 
-        
+
+
+    switch(change_steer1) {
+        case 1:
+            ring_steer = steer + right_in_steer;
+            if (ring_steer<=STEER_MIN) {
+                ring_steer=STEER_MIN;
+            }
+            
+            pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
        
-         break;     /* 进右环岛强制打角 */
+            break;     /* 进右环岛强制打角 */
        
-         case 2 : 
-          ring_steer=steer+left_in_steer;
-          if(ring_steer>=STEER_MAX)
-          {ring_steer=STEER_MAX;}
+        case 2:
+            ring_steer=steer+left_in_steer;
+
+            if (ring_steer>=STEER_MAX) {
+                ring_steer=STEER_MAX;
+            }
          
+            pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
          
-         pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
+            break;
         
-        break;
-        
-        case 3 : 
-        if(steer >= STEER_MAX) { steer = STEER_MAX; }       /* 限幅，防 zf_assert 死机 */
-        if(steer <= STEER_MIN) { steer = STEER_MIN; }
-        pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(steer));
-        break;  /* 岛内pid正常跑 */
+        case 3: 
+            if (steer >= STEER_MAX) {
+                steer = STEER_MAX;
+            }
+
+            if (steer <= STEER_MIN) {
+            steer = STEER_MIN; 
+            }
+            
+            /* 限幅，防 zf_assert 死机 */、
+
+            pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(steer));
+
+            break;
+            
+            /* 岛内pid正常跑 */
 
 
-        case 4 :
-        ring_steer =steer+right_out_steer;
-        if(ring_steer>=STEER_MAX)
-         {ring_steer=STEER_MAX;}
-         pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
-        
-        break;  /* 出右环岛强制打角 */
-        case 5 :
-        ring_steer =steer+left_out_steer;
-        if(ring_steer<=STEER_MIN)
-        {ring_steer=STEER_MIN;} 
-        pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
-       
+        case 4:
+            ring_steer =steer+right_out_steer;
 
-        break;  /* 出右环岛强制打角 */
-      }
+            if (ring_steer>=STEER_MAX) {
+                ring_steer=STEER_MAX;
+            }
+            pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
+
+            break;
+            
+            /* 出右环岛强制打角 */
+
+        case 5:
+            ring_steer =steer+left_out_steer;
+
+            if (ring_steer<=STEER_MIN) {
+                ring_steer=STEER_MIN;
+            } 
+            pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
+
+            break;
+            /* 出右环岛强制打角 */
+    }
     
     /* ---- 5. 发舵机---- */
    
@@ -347,8 +396,7 @@ void main(void)
     /* ---- 电感初始化 ---- */
     for (i = 0; i < INDUCTOR_NUM; i++)
     {
-        adc_init(inductor_ch[i], ADC_12BIT);    
-        
+        adc_init(inductor_ch[i], ADC_12BIT); 
     }
 
     tft180_init();
@@ -364,7 +412,6 @@ void main(void)
     gpio_init(MOTOR_R_DIR, GPO, GPIO_HIGH, GPO_PUSH_PULL);
 
     pit_ms_init(TIM0_PIT, 5, control_handler);   // 5ms 中断 
-
 
     while(1)
     {
@@ -398,27 +445,24 @@ void main(void)
         
 
     }     
-        /* ========== 4. 电机两轮正转 ========== */
-        gpio_set_level(MOTOR_L_DIR, GPIO_HIGH);
-        pwm_set_duty(MOTOR_L_PWM, MOTOR_TEST_DUTY);
-        gpio_set_level(MOTOR_R_DIR, GPIO_HIGH);
-        pwm_set_duty(MOTOR_R_PWM, MOTOR_TEST_DUTY);
+    /* ========== 4. 电机两轮正转 ========== */
+    gpio_set_level(MOTOR_L_DIR, GPIO_HIGH);
+    pwm_set_duty(MOTOR_L_PWM, MOTOR_TEST_DUTY);
 
-       
-  
-        
-        /* ========== 6. 屏幕显示电感值 ========== */
-        tft180_show_int16(0,0,(uint16)inductor_now[0]);        
-        tft180_show_int16(64,0,(uint16)inductor_now[1]);
-        tft180_show_int16(0,16,(uint16)inductor_now[2]);     
-        tft180_show_int16(64,16,(uint16)inductor_now[3]);     
-    
-       tft180_show_int16(0, 48, (g_err10) );      
-        tft180_show_int16(64, 48, (g_steer10));
-        tft180_show_int16(64, 64, (state));
-       
-       
-       system_delay_ms(10);
-       
-       }    
+    gpio_set_level(MOTOR_R_DIR, GPIO_HIGH);
+    pwm_set_duty(MOTOR_R_PWM, MOTOR_TEST_DUTY);
 
+
+
+    /* ========== 6. 屏幕显示电感值 ========== */
+    tft180_show_int16(0,0,(uint16)inductor_now[0]);        
+    tft180_show_int16(64,0,(uint16)inductor_now[1]);
+    tft180_show_int16(0,16,(uint16)inductor_now[2]);     
+    tft180_show_int16(64,16,(uint16)inductor_now[3]);     
+    tft180_show_int16(0, 48, (g_err10) );      
+    tft180_show_int16(64, 48, (g_steer10));
+    tft180_show_int16(64, 64, (state));
+
+    system_delay_ms(10);
+
+}    
