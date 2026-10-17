@@ -115,12 +115,12 @@ float periods = 0.005f;                 /* 中断周期 5ms */
 
 /* 舵机扫描方向 */
 
-/* ----  中断变量----*/
+/* ----  中断变量 ---- */
 volatile int16  g_err10   = 0;                  /* err   × 10 */
 volatile int16  g_steer10 = 0;                  /* steer × 10 */ 
 volatile int16  g_total10 = 0;
 
-/* 环岛变量*/ 
+/* 环岛变量 */ 
 #define rLOOP_IN_ADC        (45)               
 #define lLOOP_IN_ADC        (45)
 #define LOOP_IN_ADC         (120)         
@@ -152,6 +152,8 @@ float WEIGHT_OUT = 1.0f;  /* 外侧权重 */
 float WEIGHT_IN = 0.0f;   /* 内侧权重 */
 float WEIGHT_diff ;  
 float WEIGHT_SUM  ;
+
+
 
 /* ============================ 中断函数 ============================ */              
 void control_handler(void){
@@ -233,14 +235,15 @@ void control_handler(void){
                 break;                             
 
             case enter_loop_signal:     // 环岛信号
-                change_steer1 = (signal == 1) ? 1 : 2;  // ???求翻译
+                change_steer1 = (signal == 1) ? 1 : 2;  // 右环岛用state1 左环岛用state2
                 state = xh_SIGNAL;
 
                 break;
 
-            case xh_SIGNAL:
+            case xh_SIGNAL:     
                 change_steer1 = 3;
 
+                /* 出环岛判断 */
                 if (
 
                         ( (int32)inductor_now[1] > (int32)rLOOP_exit_ADC )
@@ -249,7 +252,7 @@ void control_handler(void){
 
                     )
                 {
-                    state = change_steer3;
+                    state = change_steer3;      // 装载出岛动作（右），然后进冷却
                 }
                 else if (
 
@@ -260,32 +263,32 @@ void control_handler(void){
                     )
                 
                 {
-                    state = change_steer4;
+                    state = change_steer4;      // 装载出岛动作（左），然后进冷却
                 }
 
                 break;
 
             case change_steer3:
                 change_steer1 = 3;
-                state = cool_state;
+                state = cool_state;     // 进入状态机冷却状态，锁定状态机
 
                 break;
 
             case change_steer4:
-                change_steer1 = 4;
-                state = cool_state;
+                change_steer1 = 4;      // 进入状态机冷却状态，锁定状态机
+                state = cool_state;     
 
                 break;
 
             case cool_state:
-                cool_time = 30;
-                state = find_signal;
+                cool_time = 30;         // 冷却时间
+                state = find_signal;    // 进入路况判断状态
 
                 break;
 
-            default:
-                state = find_signal;
-                change_steer1 = 0;
+            default:                    // 异常复位
+                state = find_signal;    // 进入路况判断状态
+                change_steer1 = 0;      
 
                 break;
                 
@@ -321,7 +324,9 @@ void control_handler(void){
             
             pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
        
-            break;     /* 进右环岛强制打角 */
+            break;     
+            
+            /* 进右环岛强制打角 */
        
         case 2:
             ring_steer=steer+left_in_steer;
@@ -343,7 +348,7 @@ void control_handler(void){
             steer = STEER_MIN; 
             }
             
-            /* 限幅，防 zf_assert 死机 */、
+            /* 限幅，防 zf_assert 死机 */
 
             pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(steer));
 
@@ -373,6 +378,7 @@ void control_handler(void){
             pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
 
             break;
+            
             /* 出右环岛强制打角 */
     }
     
@@ -411,40 +417,10 @@ void main(void)
     pwm_init(MOTOR_R_PWM, MOTOR_PWM_FREQ, 0);
     gpio_init(MOTOR_R_DIR, GPO, GPIO_HIGH, GPO_PUSH_PULL);
 
-    pit_ms_init(TIM0_PIT, 5, control_handler);   // 5ms 中断 
-
-    while(1)
-    {
-        
-     
+    pit_ms_init(TIM0_PIT, 5, control_handler);   // 5ms 中断
 
 
 
-
-
-
-
-
-
-
-
-     
-            
-
-
-
-
-                
-
-            
-                
-               
-     
-        
-       
-        
-
-    }     
     /* ========== 4. 电机两轮正转 ========== */
     gpio_set_level(MOTOR_L_DIR, GPIO_HIGH);
     pwm_set_duty(MOTOR_L_PWM, MOTOR_TEST_DUTY);
@@ -454,15 +430,17 @@ void main(void)
 
 
 
-    /* ========== 6. 屏幕显示电感值 ========== */
-    tft180_show_int16(0,0,(uint16)inductor_now[0]);        
-    tft180_show_int16(64,0,(uint16)inductor_now[1]);
-    tft180_show_int16(0,16,(uint16)inductor_now[2]);     
-    tft180_show_int16(64,16,(uint16)inductor_now[3]);     
-    tft180_show_int16(0, 48, (g_err10) );      
-    tft180_show_int16(64, 48, (g_steer10));
-    tft180_show_int16(64, 64, (state));
+    while(1)
+    {
+        /* ========== 6. 屏幕显示电感值 ========== */
+        tft180_show_int16(0, 0, (uint16)inductor_now[0]);
+        tft180_show_int16(64, 0, (uint16)inductor_now[1]);
+        tft180_show_int16(0, 16, (uint16)inductor_now[2]);
+        tft180_show_int16(64, 16, (uint16)inductor_now[3]);
+        tft180_show_int16(0, 48, (g_err10));
+        tft180_show_int16(64, 48, (g_steer10));
+        tft180_show_int16(64, 64, (state));
 
-    system_delay_ms(10);
-
+        system_delay_ms(10);
+    }     
 }    
