@@ -133,17 +133,17 @@ volatile int16  g_total10 = 0;
 #define rLOOP_exit_ADC      (120)
 #define lLOOP_exit_ADC       (120)  
 #define cool_state           (7)         
-int8 change_steer1= 0;        /* 角度状态 */
-int8 cool_time= 0;                
-volatile int8 state=find_signal;
-int8  signal=0;
+int8 change_steer1 = 0;        /* 角度状态 */
+int8 cool_time = 0;                
+volatile int8 state = find_signal;
+int8 signal =0;
 float right_in_steer= -0.8f;
 float right_out_steer= 0.8f;
 float left_in_steer= 1.0f;
 float left_out_steer= -1.0f;
 float ring_steer= 0.0f; 
 /*---加权差比和-----*/
-float  WEIGHT_OUT  =1.0f;  /* 外侧权重 */
+float  WEIGHT_OUT = 1.0f;  /* 外侧权重 */
 float  WEIGHT_IN = 0.0f;   /* 内侧权重 */
 float  WEIGHT_diff ;  
 float  WEIGHT_SUM  ;
@@ -166,7 +166,7 @@ void control_handler(void){
     
     
     /* ---- 1. 采电感（循环采每一路）---- */
-    for(i = 0; i < INDUCTOR_NUM; i++)
+    for (i = 0; i < INDUCTOR_NUM; i++)
     {
         inductor_now[i] = adc_mean_filter_convert(inductor_ch[i], INDUCTOR_FILTER);
     }
@@ -179,10 +179,10 @@ void control_handler(void){
    
     
          
-    err = (float)(WEIGHT_diff) / (float)(WEIGHT_SUM);   
-      
-       
-    
+    err = (float)(WEIGHT_diff) / (float)(WEIGHT_SUM);
+    delta_err = (err - err_last) / periods;
+    err_last = err;  
+            
 
     /* ---- 4.5 D 项一阶低通滤波 ---- */
     d_filt = d_alpha * delta_err + (1.0f - d_alpha) * d_filt;
