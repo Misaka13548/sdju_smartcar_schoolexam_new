@@ -131,15 +131,13 @@ volatile int16  g_total10 = 0;
 #define enter_loop_signal   (1)
 #define xh_SIGNAL           (2)
       
-#define change_steer3       (3)
 #define change_steer4       (4)
+#define change_steer5       (5)
 
-#define EXIT_LOOP_SIGNAL    (5)
-#define COOLDOWN_SIGNAL     (6)
 #define rLOOP_exit_ADC      (120)
 #define lLOOP_exit_ADC       (120)  
 #define cool_state           (7)         
-int8 change_steer1 = 0;        /* 角度状态 */
+int8 change_steer1 = 3;        /* 角度状态 */   // 默认开启限幅
 uint16 cool_time = 0;          /* 状态机冷却 这里指的是周期 */
 volatile int8 state = find_signal;  // 让状态机state设置默认为 find_signal➡️0
 int8 signal =0;
@@ -242,7 +240,6 @@ void control_handler(void){
             case xh_SIGNAL:     
                 change_steer1 = 3;
 
-                // ！！！
                 /* 出环岛判断 */
                 if (
 
@@ -252,7 +249,7 @@ void control_handler(void){
 
                     )
                 {
-                    state = change_steer3;      // 装载出岛动作（右）
+                    state = change_steer4;      // 装载出岛动作（右）
                 }
                 else if (
 
@@ -263,24 +260,25 @@ void control_handler(void){
                     )
                 
                 {
-                    state = change_steer4;      // 装载出岛动作（左）
+                    state = change_steer5;      // 装载出岛动作（左）
                 }
 
                 break;
 
-            case change_steer3:
-                change_steer1 = 3;
+            case change_steer4:
+                change_steer1 = 4;
                 state = cool_state;     // 进入状态机冷却状态，锁定状态机
 
                 break;
 
-            case change_steer4:
-                change_steer1 = 4;      // 进入状态机冷却状态，锁定状态机
+            case change_steer5:
+                change_steer1 = 5;      // 进入状态机冷却状态，锁定状态机
                 state = cool_state;     
 
                 break;
 
             case cool_state:
+                change_steer1 = 3;      // 复位舵机状态机
                 cool_time = 60;         // 冷却时间  此处一个中断周期5ms 这里填的是周期数 因此此处实际冷却时间是 x*5ms
                 state = find_signal;    // 进入路况判断状态
 
@@ -292,12 +290,6 @@ void control_handler(void){
 
                 break;
                 
-                
-               
-                
-                
-    
-    
         } 
     }      
 
@@ -387,12 +379,13 @@ void control_handler(void){
 /* ============================ 主函数 ============================ */
 void main(void)
 {
+    uint8 i = 0;
+
     clock_init(SYSTEM_CLOCK_96M);               /* 系统时钟 96M */
     debug_init();
 
     tft180_init();
 
-    uint8 i = 0;
 
     /* ---- 电感初始化 ---- */
     for (i = 0; i < INDUCTOR_NUM; i++)
