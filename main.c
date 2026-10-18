@@ -120,8 +120,9 @@ volatile int16  g_err10   = 0;                  /* err   × 10 */
 volatile int16  g_steer10 = 0;                  /* steer × 10 */ 
 volatile int16  g_total10 = 0;
 
-/* 环岛变量 */ 
-#define rLOOP_IN_ADC        (45)               
+/* 环岛变量 */
+// 电感实际测量值
+#define rLOOP_IN_ADC        (45)       
 #define lLOOP_IN_ADC        (45)
 #define LOOP_IN_ADC         (120)         
 
@@ -139,13 +140,14 @@ volatile int16  g_total10 = 0;
 #define lLOOP_exit_ADC       (120)  
 #define cool_state           (7)         
 int8 change_steer1 = 0;        /* 角度状态 */
-int8 cool_time = 0;            /* 状态机冷却 */
+uint16 cool_time = 0;          /* 状态机冷却 这里指的是周期 */
 volatile int8 state = find_signal;  // 让状态机state设置默认为 find_signal➡️0
 int8 signal =0;
-float right_in_steer= -0.8f;
-float right_out_steer= 0.8f;
-float left_in_steer= 1.0f;
-float left_out_steer= -1.0f;
+float right_in_steer= -0.8f;    // 右环岛进入偏移 应该小于0
+float right_out_steer= 0.8f;    // 右环岛离开偏移 应该大于0
+
+float left_in_steer= 1.0f;      // 左环岛进入偏移 应该大于0
+float left_out_steer= -1.0f;    // 左环岛离开偏移 应该小于0
 float ring_steer= 0.0f; 
 /*---加权差比和-----*/
 float WEIGHT_OUT = 1.0f;  /* 外侧权重 */
@@ -158,19 +160,7 @@ float WEIGHT_SUM  ;
 /* ============================ 中断函数 ============================ */              
 void control_handler(void){
 
-
-
     uint8 i = 0;
-
-    
-
-                
-                
-               
-                
-                
-    
-    
     
     /* ---- 1. 采电感（循环采每一路）---- */
     for (i = 0; i < INDUCTOR_NUM; i++)
@@ -199,7 +189,7 @@ void control_handler(void){
     d_filt = d_alpha * delta_err + (1.0f - d_alpha) * d_filt;   
 
 
-    if (cool_time > 0){
+    if (cool_time > 0) {        // 环岛冷却
         cool_time--;
     }
     else {    
@@ -235,7 +225,16 @@ void control_handler(void){
                 break;                             
 
             case enter_loop_signal:     // 环岛信号
-                change_steer1 = (signal == 1) ? 1 : 2;  // 右环岛用state1 左环岛用state2
+
+                if (signal == 1)    
+                {
+                    change_steer1 = 1;
+                }
+                else                    
+                {
+                    change_steer1 = 2;
+                }
+                
                 state = xh_SIGNAL;
 
                 break;
@@ -243,6 +242,7 @@ void control_handler(void){
             case xh_SIGNAL:     
                 change_steer1 = 3;
 
+                // ！！！
                 /* 出环岛判断 */
                 if (
 
@@ -252,7 +252,7 @@ void control_handler(void){
 
                     )
                 {
-                    state = change_steer3;      // 装载出岛动作（右），然后进冷却
+                    state = change_steer3;      // 装载出岛动作（右）
                 }
                 else if (
 
@@ -263,7 +263,7 @@ void control_handler(void){
                     )
                 
                 {
-                    state = change_steer4;      // 装载出岛动作（左），然后进冷却
+                    state = change_steer4;      // 装载出岛动作（左）
                 }
 
                 break;
@@ -281,7 +281,7 @@ void control_handler(void){
                 break;
 
             case cool_state:
-                cool_time = 30;         // 冷却时间
+                cool_time = 60;         // 冷却时间  此处一个中断周期5ms 这里填的是周期数 因此此处实际冷却时间是 x*5ms
                 state = find_signal;    // 进入路况判断状态
 
                 break;
@@ -314,37 +314,37 @@ void control_handler(void){
     /*  限幅，防 zf_assert 死机 */
 
 
-
+    /* 舵机执行状态机 */
     switch(change_steer1) {
-        case 1:
-            ring_steer = steer + right_in_steer;
-            if (ring_steer<=STEER_MIN) {
-                ring_steer=STEER_MIN;
+        case 1:     /* 进右环岛强制打角 舵机右偏 */
+            ring_steer = steer + right_in_steer;        
+            if (ring_steer <= STEER_MIN) {      // 限幅
+                ring_steer = STEER_MIN;
             }
             
             pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
        
             break;     
             
-            /* 进右环岛强制打角 */
+            
        
-        case 2:
-            ring_steer=steer+left_in_steer;
+        case 2:     /* 进左环岛强制打角 舵机左偏 */
+            ring_steer = steer + left_in_steer;         
 
-            if (ring_steer>=STEER_MAX) {
-                ring_steer=STEER_MAX;
+            if (ring_steer >= STEER_MAX) {      // 限幅
+                ring_steer = STEER_MAX;
             }
          
             pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
          
             break;
         
-        case 3: 
-            if (steer >= STEER_MAX) {
+        case 3:     /* 岛内pid正常跑 */
+            if (steer >= STEER_MAX) {       // 限幅
                 steer = STEER_MAX;
             }
 
-            if (steer <= STEER_MIN) {
+            if (steer <= STEER_MIN) {       // 限幅
             steer = STEER_MIN; 
             }
             
@@ -353,37 +353,31 @@ void control_handler(void){
             pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(steer));
 
             break;
-            
-            /* 岛内pid正常跑 */
 
+        case 4:     /* 出右环岛舵机左偏 */ 
+            ring_steer = steer + right_out_steer;   
 
-        case 4:
-            ring_steer =steer+right_out_steer;
-
-            if (ring_steer>=STEER_MAX) {
-                ring_steer=STEER_MAX;
+            if (ring_steer >= STEER_MAX) {      // 限幅
+                ring_steer = STEER_MAX;
             }
             pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
 
             break;
             
-            /* 出右环岛强制打角 */
 
-        case 5:
-            ring_steer =steer+left_out_steer;
+        case 5:     /* 出左环岛舵机右偏 */
+            ring_steer = steer + left_out_steer;    
 
-            if (ring_steer<=STEER_MIN) {
-                ring_steer=STEER_MIN;
+            if (ring_steer <= STEER_MIN) {        // 限幅
+                ring_steer = STEER_MIN;
             } 
             pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
 
             break;
             
-            /* 出右环岛强制打角 */
     }
     
     /* ---- 5. 发舵机---- */
-   
     g_err10   = (int16)(err * 10.0f);
     g_steer10 = (int16)(steer * 10.0f);
     
@@ -393,20 +387,18 @@ void control_handler(void){
 /* ============================ 主函数 ============================ */
 void main(void)
 {
-    
-    uint8 i = 0;
-     
     clock_init(SYSTEM_CLOCK_96M);               /* 系统时钟 96M */
     debug_init();
+
+    tft180_init();
+
+    uint8 i = 0;
 
     /* ---- 电感初始化 ---- */
     for (i = 0; i < INDUCTOR_NUM; i++)
     {
         adc_init(inductor_ch[i], ADC_12BIT); 
     }
-
-    tft180_init();
-
 
     /* ---- 舵机初始化 ---- */
     pwm_init(SERVO_PWM, SERVO_FREQ, 0);
