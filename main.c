@@ -153,6 +153,8 @@ float WEIGHT_IN = 0.0f;   /* 内侧权重 */
 float WEIGHT_diff ;  
 float WEIGHT_SUM  ;
 
+/* 舵机锁定 */
+uint16 steer_hold = 0;   /* 打角锁定 这里指的是周期 */
 
 
 /* ============================ 中断函数 ============================ */              
@@ -186,15 +188,23 @@ void control_handler(void){
     /* ---- 4.5 D 项一阶低通滤波 ---- */
     d_filt = d_alpha * delta_err + (1.0f - d_alpha) * d_filt;   
 
+    /* 路况判断状态机 */
+    if (steer_hold > 0) {     // 锁定路况判断状态机 入环岛锁角
+        steer_hold--;
+    }
+    else if (cool_time > 0) {
+        cool_time--;         // 出环岛冷却
 
-    if (cool_time > 0) {        // 环岛冷却
-        cool_time--;
+        if (cool_time == 0) {
+            change_steer1 = 3; // 这里是正好接住 cool_time 刚刚减到0的时候的
+        }
     }
     else {    
         switch(state)
         {
             case find_signal:       // 路况判断状态
                 /* 4电感判断如果当中电感抽了，试试用err */
+
                 if (
 
                     ( (int32)inductor_now[1] - (int32)inductor_now[2] > (int32)rLOOP_IN_ADC )
@@ -217,7 +227,7 @@ void control_handler(void){
 
                 {
                     signal = 2;                     /* 左环岛 */
-                    state  = enter_loop_signal;
+                    state = enter_loop_signal;
                 }
 
                 break;                             
@@ -234,6 +244,8 @@ void control_handler(void){
                 }
                 
                 state = xh_SIGNAL;
+
+                steer_hold = 200;   // 设定舵机状态机锁定时间 200个周期 = 1s
 
                 break;
 
@@ -278,7 +290,6 @@ void control_handler(void){
                 break;
 
             case cool_state:
-                change_steer1 = 3;      // 复位舵机状态机
                 cool_time = 60;         // 冷却时间  此处一个中断周期5ms 这里填的是周期数 因此此处实际冷却时间是 x*5ms
                 state = find_signal;    // 进入路况判断状态
 
@@ -309,6 +320,7 @@ void control_handler(void){
     /* 舵机执行状态机 */
     switch(change_steer1) {
         case 1:     /* 进右环岛强制打角 舵机右偏 */
+
             ring_steer = steer + right_in_steer;        
             if (ring_steer <= STEER_MIN) {      // 限幅
                 ring_steer = STEER_MIN;
@@ -321,6 +333,7 @@ void control_handler(void){
             
        
         case 2:     /* 进左环岛强制打角 舵机左偏 */
+
             ring_steer = steer + left_in_steer;         
 
             if (ring_steer >= STEER_MAX) {      // 限幅
@@ -346,7 +359,8 @@ void control_handler(void){
 
             break;
 
-        case 4:     /* 出右环岛舵机左偏 */ 
+        case 4:     /* 出右环岛舵机左偏 */
+
             ring_steer = steer + right_out_steer;   
 
             if (ring_steer >= STEER_MAX) {      // 限幅
@@ -358,6 +372,7 @@ void control_handler(void){
             
 
         case 5:     /* 出左环岛舵机右偏 */
+
             ring_steer = steer + left_out_steer;    
 
             if (ring_steer <= STEER_MIN) {        // 限幅
@@ -425,6 +440,9 @@ void main(void)
         tft180_show_int16(0, 48, (g_err10));
         tft180_show_int16(64, 48, (g_steer10));
         tft180_show_int16(64, 64, (state));
+
+        tft180_show_int16(0, 80, steer_hold);   // 锁角时间
+        tft180_show_int16(64, 80, cool_time);   // 出岛冷却时间
 
         system_delay_ms(10);
     }     
