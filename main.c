@@ -141,10 +141,10 @@ int8 change_steer1 = 3;        /* 角度状态 */   // 默认开启限幅
 uint16 cool_time = 0;          /* 状态机冷却 这里指的是周期 */
 volatile int8 state = find_signal;  // 让状态机state设置默认为 find_signal➡️0
 int8 signal =0;
-float right_in_steer= -0.8f;    // 右环岛进入偏移 应该小于0
+float right_in_steer= -9.5f;    // 右环岛进入偏移 应该小于0
 float right_out_steer= 0.8f;    // 右环岛离开偏移 应该大于0
 
-float left_in_steer= 1.0f;      // 左环岛进入偏移 应该大于0
+float left_in_steer= 9.5f;      // 左环岛进入偏移 应该大于0
 float left_out_steer= -1.0f;    // 左环岛离开偏移 应该小于0
 float ring_steer= 0.0f; 
 /*---加权差比和-----*/
