@@ -245,7 +245,7 @@ void control_handler(void){
                 
                 state = xh_SIGNAL;
 
-                steer_hold = 200;   // 设定舵机状态机锁定时间 200个周期 = 1s
+                steer_hold = 60;   // 设定舵机状态机锁定时间 200个周期 = 1s
 
                 break;
 
