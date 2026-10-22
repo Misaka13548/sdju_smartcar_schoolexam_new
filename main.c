@@ -72,7 +72,7 @@ adc_channel_enum inductor_ch[INDUCTOR_NUM] =
 volatile uint16 inductor_now[INDUCTOR_NUM];      /* 当前值  */
 
 /* ============================ pid配置 ============================ */
-#define STEER_MID       (85.2f)
+#define STEER_MID       (86.04f)         /* 舵机中值 */
 #define STEER_MIN       (75.2f)         /* 舵机角度下界 */
 #define STEER_MAX       (95.2f)         /* 舵机角度上界 */
 int32 left_sum =  0;                    /* 左电感累加值 */
