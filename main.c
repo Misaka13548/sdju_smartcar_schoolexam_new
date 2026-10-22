@@ -290,7 +290,7 @@ void control_handler(void){
                 break;
 
             case cool_state:
-                cool_time = 60;         // 冷却时间  此处一个中断周期5ms 这里填的是周期数 因此此处实际冷却时间是 x*5ms
+                cool_time = 30;         // 冷却时间  此处一个中断周期5ms 这里填的是周期数 因此此处实际冷却时间是 x*5ms
                 state = find_signal;    // 进入路况判断状态
 
                 break;
