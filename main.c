@@ -72,7 +72,7 @@ adc_channel_enum inductor_ch[INDUCTOR_NUM] =
 volatile uint16 inductor_now[INDUCTOR_NUM];      /* 当前值  */
 
 /* ============================ pid配置 ============================ */
-#define STEER_MID       (86.04f)         /* 舵机中值 */
+#define STEER_MID       (86.04f)        /* 舵机中值 */
 #define STEER_MIN       (75.2f)         /* 舵机角度下界 */
 #define STEER_MAX       (95.2f)         /* 舵机角度上界 */
 int32 left_sum =  0;                    /* 左电感累加值 */
@@ -345,6 +345,7 @@ void control_handler(void){
             break;
         
         case 3:     /* 岛内pid正常跑 */
+
             if (steer >= STEER_MAX) {       // 限幅
                 steer = STEER_MAX;
             }
@@ -366,6 +367,7 @@ void control_handler(void){
             if (ring_steer >= STEER_MAX) {      // 限幅
                 ring_steer = STEER_MAX;
             }
+
             pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
 
             break;
@@ -377,7 +379,8 @@ void control_handler(void){
 
             if (ring_steer <= STEER_MIN) {        // 限幅
                 ring_steer = STEER_MIN;
-            } 
+            }
+
             pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
 
             break;
