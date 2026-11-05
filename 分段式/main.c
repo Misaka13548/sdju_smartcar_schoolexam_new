@@ -102,11 +102,11 @@ float periods = 0.005f;                 /* 中断周期 5ms */
 #define RING_EXIT_ADC1       (2800)
 #define RING_EXIT_ADC2      (2800) 
 #define cool_state           (7)  
-int s;
+int diff_1and2;
 int op = 0;
 
 uint16 steer_hold = 0;
-int8 change_steer1 = 0;        /*角度状态*/
+int8 steer_status = 0;        /*角度状态*/
 int8 cool_time = 0;
 volatile int8 state = find_signal;
 int8  signal = 0;
@@ -130,6 +130,8 @@ float left_out_steer = -1.0f;
 #define out_r_cnt      (20)
 #define out_l_cnt      (10)
 int seg_cnt = 0;			// 计时器
+int out_ring_coldtime = 0;			// 环岛时间计时器
+
 volatile int seg = STRAIGHT;	// 状态
 volatile int16  g_err10 = 0;                  /* err   × 10 */
 volatile int16  g_steer10 = 0;
@@ -163,7 +165,7 @@ void control_handler(void) {
 
 	WEIGHT_SUM = WEIGHT_IN * ((int32)inductor_now[1] + (int32)inductor_now[2]) + WEIGHT_OUT * ((int32)inductor_now[0] + (int32)inductor_now[3]);
 
-	s = (int32)inductor_now[1] - (int32)inductor_now[2];
+	diff_1and2 = (int32)inductor_now[1] - (int32)inductor_now[2];	// 中间两个电感差值
 	if (inductor_now[0] + inductor_now[3] >= 40) {		// 死区
 		err = (float)(WEIGHT_diff) / (float)(WEIGHT_SUM);
 	}
@@ -234,43 +236,43 @@ void control_handler(void) {
 		cool_time--;         // 出环岛冷却
 
 		if (cool_time == 0) {
-			change_steer1 = 3; // 这里是正好接住 cool_time 刚刚减到0的时候的
+			steer_status = 3; // 这里是正好接住 cool_time 刚刚减到0的时候的
 		}
 	}
 	else
 	{
 		switch (state)
 		{
-		case find_signal:
-			if (s < -400/*4电感判断如果当中电感抽了，试试用err*/
+		case find_signal:		// 环岛信号判断
+			if (diff_1and2 < -400
 				&& (op == 1) && inductor_now[0] + inductor_now[3] >= 3800)
 			{
 				signal = 1;                     /* 右环岛 */
 				state = enter_loop_signal;
 			}
-			else if (s > 400
+			else if (diff_1and2 > 400
 				&& (op == -1) && WEIGHT_SUM >= 3800)
 			{
 				signal = 2;                     /* 左环岛 */
 				state = enter_loop_signal;
 			}
 			else {
-				if (s < -400) { op = -1; }
-				if (s > 400) { op = 1; }
-				change_steer1 = 3;
+				if (diff_1and2 < -400) { op = -1; }
+				if (diff_1and2 > 400) { op = 1; }
+				steer_status = 3;
 			}
 
 
 			break;
 
 		case enter_loop_signal:
-			change_steer1 = (signal == 1) ? 1 : 2;
+			steer_status = (signal == 1) ? 1 : 2;
 			state = xh_SIGNAL;
-			steer_hold = 300;
+			steer_hold = 300;	// 锁定路况判断状态机 入环岛锁角 给300次
 			break;
 
 		case xh_SIGNAL:
-			change_steer1 = 3;
+			steer_status = 3;
 			if (((int32)inductor_now[1] > (int32)RING_EXIT_ADC1)
 				&& ((int32)inductor_now[2] > (int32)RING_EXIT_ADC2))
 			{
@@ -285,12 +287,12 @@ void control_handler(void) {
 			}
 			break;
 		case change_steer3:
-			change_steer1 = 4;
+			steer_status = 4;
 			state = cool_state;
 			break;
 
 		case change_steer4:
-			change_steer1 = 5;
+			steer_status = 5;
 			state = cool_state;
 			break;
 
@@ -301,7 +303,7 @@ void control_handler(void) {
 
 		default:
 			state = find_signal;
-			change_steer1 = 0;
+			steer_status = 0;
 			break;
 		}
 
@@ -332,7 +334,7 @@ void control_handler(void) {
 
 
 
-	switch (change_steer1)
+	switch (steer_status)
 
 
 	{
@@ -360,7 +362,7 @@ void control_handler(void) {
 
 		pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
 
-		break;
+		break;	/* 进左环岛强制打角 */
 
 	case 3:
 		if (steer >= STEER_MAX)
@@ -376,7 +378,7 @@ void control_handler(void) {
 
 
 		pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(steer));
-		break;/*岛内pid正常跑*/
+		break;	/* 岛内pid正常跑 */
 
 
 	case 4:
@@ -387,7 +389,7 @@ void control_handler(void) {
 		}
 		pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
 
-		break;/*出右环岛强制打角*/
+		break;	/*出右环岛强制打角*/
 	case 5:
 		ring_steer = steer + left_out_steer;
 		if (ring_steer <= STEER_MIN)
@@ -397,7 +399,7 @@ void control_handler(void) {
 		pwm_set_duty(SERVO_PWM, (uint32)SERVO_DUTY(ring_steer));
 
 
-		break;
+		break;	/* 出左环岛强制打角 */
 	}
 	//delta_err =(err - err_last)/periods; 
 
@@ -524,7 +526,7 @@ void main(void)
 		tft180_show_int16(0, 48, (g_err10));
 		tft180_show_int16(64, 48, (g_steer10));
 		tft180_show_int16(64, 64, (state));
-		tft180_show_int16(64, 80, (s));
+		tft180_show_int16(64, 80, (diff_1and2));
 		tft180_show_int16(64, 96, (seg));
 		tft180_show_int16(0, 144, (int16)(inductor_now[0] + inductor_now[3]));  /* 幅度 */
 		tft180_show_int16(64, 144, (int16)gg_steer10);                                    /* 记忆 */
